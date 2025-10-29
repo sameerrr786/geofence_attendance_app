@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "740814997239",
+    "project_id": "face-attendance-geo",
+    "storage_bucket": "face-attendance-geo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:740814997239:android:06585b280b986f849875f2",
+        "android_client_info": {
+          "package_name": "com.example.geofence_attendance_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCh3-3ivBxYJDZOworEaALrD07yQDz8c10"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
