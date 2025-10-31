@@ -8,7 +8,7 @@ Future<void> main() async {
   // These two lines are new and ESSENTIAL
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const MyApp());
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -61,3 +61,4 @@ class MyApp extends StatelessWidget {
     );
   }
 }
+

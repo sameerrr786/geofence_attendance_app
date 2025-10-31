@@ -1,7 +1,8 @@
 // lib/screens/home_dashboard_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:geofence_attendance_app/services/location_service.dart'; // Import our new service
+import 'package:geofence_attendance_app/services/location_service.dart';
+import 'package:geofence_attendance_app/screens/attendance_marking_screen.dart'; // Add this import
 
 // Convert to a StatefulWidget to manage loading state
 class HomeDashboardScreen extends StatefulWidget {
@@ -18,7 +19,21 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
   /// This is our new function to handle the attendance button press
   Future<void> _markAttendance(DocumentSnapshot subjectDoc) async {
-    final subject = subjectDoc.data() as Map<String, dynamic>;
+    final subject = subjectDoc.data() as Map<String, dynamic>?; // Make nullable
+
+    // Safety Check: Ensure subject data exists
+    if (subject == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Error: Subject data not found.'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+      return;
+    }
+
     final String subjectName = subject['name'] ?? 'This Subject';
 
     setState(() {
@@ -27,11 +42,17 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     });
 
     try {
-      // 1. Get the geofence data from Firestore
-      final double latitude = subject['latitude'];
-      final double longitude = subject['longitude'];
-      final double radius = subject['radius']
-          .toDouble(); // Ensure it's a double
+      // 1. Get the geofence data from Firestore with safety checks
+      final double? latitude = (subject['latitude'] as num?)?.toDouble();
+      final double? longitude = (subject['longitude'] as num?)?.toDouble();
+      // Provide a default radius if missing, or use the value from Firestore
+      final double radius =
+          (subject['radius'] as num?)?.toDouble() ?? 50.0; // Default 50m
+
+      // Check if coordinates are valid
+      if (latitude == null || longitude == null) {
+        throw Exception('Missing location coordinates for this subject.');
+      }
 
       // 2. Call our location service
       final bool isInside = await _locationService.isWithinGeofence(
@@ -46,12 +67,20 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Location confirmed for $subjectName!'),
+              content: Text(
+                'Location confirmed for $subjectName! Proceeding to face scan...',
+              ),
               backgroundColor: Colors.green,
             ),
           );
+          // Navigate to Face Scan screen
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) =>
+                  AttendanceMarkingScreen(subjectName: subjectName),
+            ),
+          );
         }
-        // TODO: Navigate to Face Scan screen
       } else {
         // FAILURE!
         if (mounted) {
@@ -64,7 +93,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         }
       }
     } catch (e) {
-      // Show any other errors (like "permissions denied")
+      // Show any other errors (like "permissions denied" or missing coordinates)
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -75,10 +104,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       }
     } finally {
       // 4. Stop the loading spinner
-      setState(() {
-        _isLoading = false;
-        _loadingSubjectId = null;
-      });
+      if (mounted) {
+        // Add mounted check here too
+        setState(() {
+          _isLoading = false;
+          _loadingSubjectId = null;
+        });
+      }
     }
   }
 
@@ -96,10 +128,14 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+            return Center(
+              child: Text('Error fetching subjects: ${snapshot.error}'),
+            );
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('No subjects found.'));
+            return const Center(
+              child: Text('No subjects found. Add subjects in Firestore.'),
+            );
           }
 
           final subjectDocs = snapshot.data!.docs;
@@ -109,7 +145,8 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             itemCount: subjectDocs.length,
             itemBuilder: (context, index) {
               final subjectDoc = subjectDocs[index];
-              final subject = subjectDoc.data() as Map<String, dynamic>;
+              // Use safe casting here as well
+              final subject = subjectDoc.data() as Map<String, dynamic>? ?? {};
               final String subjectName = subject['name'] ?? 'No Name';
               final String instructorName =
                   subject['instructor'] ?? 'No Instructor';
@@ -129,26 +166,41 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            subjectName,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            instructorName,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
+                      // Use Flexible to prevent text overflow if names are long
+                      Flexible(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              subjectName,
+                              style: Theme.of(context).textTheme.titleLarge,
+                              overflow: TextOverflow
+                                  .ellipsis, // Prevent long names breaking layout
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              instructorName,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 16), // Add spacing
                       // Show a spinner OR the button
                       if (isThisCardLoading)
-                        const CircularProgressIndicator()
+                        const SizedBox(
+                          // Give spinner a defined size
+                          height: 24,
+                          width: 24,
+                          child: CircularProgressIndicator(strokeWidth: 3),
+                        )
                       else
                         ElevatedButton(
-                          onPressed: () => _markAttendance(subjectDoc),
+                          // Prevent button press if already loading
+                          onPressed: _isLoading
+                              ? null
+                              : () => _markAttendance(subjectDoc),
                           child: const Text('Mark'),
                         ),
                     ],

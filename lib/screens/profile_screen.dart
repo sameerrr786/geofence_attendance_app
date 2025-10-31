@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geofence_attendance_app/screens/login_screen.dart';
+import 'package:geofence_attendance_app/screens/face_registration_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -63,9 +64,13 @@ class ProfileScreen extends StatelessWidget {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
               onPressed: () {
-                // TODO: Add face re-registration logic
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const FaceRegistrationScreen(),
+                  ),
+                );
               },
-              child: const Text('Re-register Face'),
+              child: const Text('Register / Update Face'),
             ),
             const SizedBox(height: 16),
 
