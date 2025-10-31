@@ -1,15 +1,22 @@
-// lib/screens/attendance_marking_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:google_mlkit_commons/google_mlkit_commons.dart'; // Still needed for InputImage and Face
+import 'package:google_mlkit_commons/google_mlkit_commons.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'; // ✅ ADDED
 
-// --- The helper function _inputImageFromCameraImage has been REMOVED ---
+// Access the global Supabase client instance (initialized in main.dart)
+final supabase = Supabase.instance.client;
 
 class AttendanceMarkingScreen extends StatefulWidget {
   final String subjectName;
+  final int classroomId; // ✅ ADDED: To link the record
 
-  const AttendanceMarkingScreen({super.key, required this.subjectName});
+  const AttendanceMarkingScreen({
+    super.key,
+    required this.subjectName,
+    required this.classroomId, // ✅ ADDED
+  });
 
   @override
   State<AttendanceMarkingScreen> createState() =>
@@ -17,13 +24,17 @@ class AttendanceMarkingScreen extends StatefulWidget {
 }
 
 class _AttendanceMarkingScreenState extends State<AttendanceMarkingScreen> {
+  // State and Controllers (as before)
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
-  CameraDescription? _cameraDescription; // Store the camera description
+  CameraDescription? _cameraDescription;
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(performanceMode: FaceDetectorMode.fast),
   );
-  bool _isProcessing = false; // Prevent multiple scans at once
+  bool _isProcessing = false;
+
+  // ✅ Get the current Supabase User ID
+  final String? userId = supabase.auth.currentUser?.id;
 
   @override
   void initState() {
@@ -31,6 +42,7 @@ class _AttendanceMarkingScreenState extends State<AttendanceMarkingScreen> {
     _initializeCamera();
   }
 
+  // Initialize camera logic (unchanged)
   Future<void> _initializeCamera() async {
     final cameras = await availableCameras();
     _cameraDescription = cameras.firstWhere(
@@ -55,7 +67,7 @@ class _AttendanceMarkingScreenState extends State<AttendanceMarkingScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error initializing camera: $e'),
+            content: Text('Failed to initialize camera: ${e.toString()}'),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
@@ -63,8 +75,12 @@ class _AttendanceMarkingScreenState extends State<AttendanceMarkingScreen> {
     }
   }
 
-  // --- Face Detection Logic ---
-  Future<void> _scanFace() async {
+  // --- ✅ MIGRATED CORE LOGIC: Scan, Upload to Supabase, and Log ---
+  Future<void> _scanFaceAndLogAttendance() async {
+    if (userId == null) {
+      _showSnackbar('User not logged in.', isError: true);
+      return;
+    }
     if (_cameraController == null ||
         !_cameraController!.value.isInitialized ||
         _isProcessing) {
@@ -76,50 +92,66 @@ class _AttendanceMarkingScreenState extends State<AttendanceMarkingScreen> {
     });
 
     try {
-      // 1. Take a picture
+      // 1. Take a picture and detect face (unchanged)
       final XFile imageFile = await _cameraController!.takePicture();
-      // 2. Create InputImage directly from file path (Correct approach)
       final InputImage inputImage = InputImage.fromFilePath(imageFile.path);
-
-      // 3. Process the image for faces
       final List<Face> faces = await _faceDetector.processImage(inputImage);
 
-      // 4. Check if any face was detected
-      if (faces.isNotEmpty) {
-        print("Face detected!");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Face Detected! Marking attendance...'),
-              backgroundColor: Colors.green,
-            ),
-          );
-          // TODO: Implement Face Recognition & save attendance record
-          Navigator.of(context).pop();
-        }
-      } else {
-        print("No face detected.");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('No face detected. Please try again.'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      print("Error scanning face: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error scanning face: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
+      if (faces.isEmpty) {
+        _showSnackbar(
+          'No face detected. Please look at the camera.',
+          isError: true,
         );
+        return;
       }
+
+      // Face Detected! Proceed with logging and upload.
+
+      // 2. Upload image to Supabase Storage
+      final fileBytes = await File(imageFile.path).readAsBytes();
+      final fileExt = imageFile.path.split('.').last;
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+      // Path format: {user_id}/attendance/{filename}
+      final filePath = '$userId/attendance/$fileName';
+
+      await supabase.storage
+          .from('user_face_images') // Your bucket name
+          .uploadBinary(
+            filePath,
+            fileBytes,
+            fileOptions: FileOptions(
+              contentType: 'image/$fileExt',
+              upsert: false, // Don't overwrite
+            ),
+          );
+
+      // Get the public URL to store in the database
+      final String downloadUrl = supabase.storage
+          .from('user_face_images')
+          .getPublicUrl(filePath);
+
+      // 3. Log attendance in Supabase 'attendance' table
+      await supabase.from('attendance').insert({
+        'user_id': userId,
+        'classroom_id': widget.classroomId,
+        'image_url': downloadUrl,
+        'status':
+            'PENDING', // This will be the default from the DB, but good to be explicit
+        // 'marked_at' will be set to now() by default in the database
+      });
+
+      _showSnackbar(
+        'Attendance submitted for verification (PENDING).',
+        isError: false,
+      );
+      Navigator.of(context).pop(); // Go back to dashboard
+    } on StorageException catch (e) {
+      print("Storage Error during attendance submission: $e");
+      _showSnackbar('Storage Submission failed: ${e.message}', isError: true);
+    } catch (e) {
+      print("Error during attendance submission: $e");
+      _showSnackbar('Submission failed: ${e.toString()}', isError: true);
     } finally {
-      // Ensure state is updated only if the widget is still mounted
       if (mounted) {
         setState(() {
           _isProcessing = false;
@@ -128,9 +160,21 @@ class _AttendanceMarkingScreenState extends State<AttendanceMarkingScreen> {
     }
   }
 
+  void _showSnackbar(String message, {bool isError = false}) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isError
+              ? Theme.of(context).colorScheme.error
+              : Colors.green,
+        ),
+      );
+    }
+  }
+
   @override
   void dispose() {
-    // It's safer to dispose the controller before closing the detector
     _cameraController?.dispose();
     _faceDetector.close();
     super.dispose();
@@ -138,50 +182,46 @@ class _AttendanceMarkingScreenState extends State<AttendanceMarkingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Handle the case where camera description might be null initially
-    final cameraDescription = _cameraDescription;
+    // ... (Your build method is unchanged) ...
+    if (!_isCameraInitialized &&
+        !(_cameraController?.value.hasError ?? false)) {
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 10),
+              Text("Initializing Camera..."),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!(_cameraController?.value.isInitialized ?? false)) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text('Mark Attendance for ${widget.subjectName}'),
+        ),
+        body: const Center(
+          child: Text(
+            "Camera Error: Access denied or failed to load.",
+            style: TextStyle(color: Colors.red),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: Text('Mark Attendance for ${widget.subjectName}')),
       body: Column(
         children: [
-          Expanded(
-            // Check _cameraController?.value.isInitialized for safety
-            child:
-                _isCameraInitialized &&
-                    _cameraController != null &&
-                    _cameraController!.value.isInitialized
-                ? Center(
-                    child: CameraPreview(_cameraController!),
-                    // Using CameraPreview directly might handle aspect ratio better sometimes
-                    // Consider adding AspectRatio if needed:
-                    // AspectRatio(
-                    //   aspectRatio: _cameraController!.value.aspectRatio,
-                    //   child: CameraPreview(_cameraController!),
-                    // ),
-                  )
-                : const Center(
-                    child: Column(
-                      // Improved loading indicator
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 10),
-                        Text("Initializing Camera..."),
-                      ],
-                    ),
-                  ),
-          ),
+          Expanded(child: Center(child: CameraPreview(_cameraController!))),
           Padding(
             padding: const EdgeInsets.all(24.0),
             child: ElevatedButton(
-              onPressed:
-                  (_isCameraInitialized &&
-                      !_isProcessing &&
-                      _cameraController != null &&
-                      _cameraController!.value.isInitialized)
-                  ? _scanFace
-                  : null,
+              onPressed: _isProcessing ? null : _scanFaceAndLogAttendance,
               child: _isProcessing
                   ? const SizedBox(
                       height: 24,

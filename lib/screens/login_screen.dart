@@ -1,7 +1,9 @@
-// lib/screens/login_screen.dart
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geofence_attendance_app/screens/main_shell.dart';
+
+// Access the global Supabase client
+final supabase = Supabase.instance.client;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -11,62 +13,34 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // Controllers for the text fields
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  // State variables
   bool _isLoading = false;
-  bool _isLogin = true; // To toggle between Login and Sign Up
+  bool _isLogin = true;
 
-  // Sign in or sign up the user
-  Future<void> _submitAuthForm() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+  // --- THIS FUNCTION IS UPDATED ---
+  Future<void> _insertUserProfile(User user) async {
     try {
-      if (_isLogin) {
-        // Log in user
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
-      } else {
-        // Sign up user
-        await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
-        // We could add user data to Firestore here (like name, student ID)
-      }
-
-      // If successful, navigate to the main app
-      // The "mounted" check is good practice
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const MainShell()),
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      // Handle errors
-      String message = 'An error occurred. Please check your credentials.';
-      if (e.message != null) {
-        message = e.message!;
-      }
-
+      // We are NO LONGER sending the 'id' field.
+      // We are relying on the 'Default Value' of auth.uid()
+      // which you configured in the screenshot.
+      await supabase.from('profiles').insert({
+        // 'id': user.id, // <-- THIS LINE IS REMOVED
+        'email': user.email,
+        'full_name': 'New User', // You can change this placeholder
+        'is_instructor': false, // Default role
+      });
+    } on PostgrestException catch (e) {
+      // Handle Postgres errors (like RLS)
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(message),
+            content: Text('Failed to create profile: ${e.message}'),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
-
-      setState(() {
-        _isLoading = false;
-      });
     } catch (e) {
       // Handle other errors
       if (mounted) {
@@ -77,9 +51,67 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
       }
-      setState(() {
-        _isLoading = false;
-      });
+    }
+  }
+
+  Future<void> _submitAuthForm() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      if (_isLogin) {
+        // Log in user
+        final AuthResponse res = await supabase.auth.signInWithPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+        // No profile insert needed on login
+      } else {
+        // Sign up user
+        final AuthResponse res = await supabase.auth.signUp(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+
+        // If sign up is successful, insert profile
+        if (res.user != null) {
+          await _insertUserProfile(res.user!);
+        }
+      }
+
+      // If successful, navigate to the main app
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const MainShell()),
+        );
+      }
+    } on AuthException catch (e) {
+      // Handle Supabase auth errors
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    } catch (e) {
+      // Handle other errors
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('An unexpected error occurred: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -92,6 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ... (UI code remains the same)
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -142,7 +175,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 const Center(child: CircularProgressIndicator())
               else
                 ElevatedButton(
-                  // Use the submit function
                   onPressed: _submitAuthForm,
                   child: Text(_isLogin ? 'LOGIN' : 'SIGN UP'),
                 ),

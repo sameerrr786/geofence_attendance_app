@@ -1,17 +1,19 @@
-// lib/screens/profile_screen.dart
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'; // ✅ CHANGED
 import 'package:geofence_attendance_app/screens/login_screen.dart';
 import 'package:geofence_attendance_app/screens/face_registration_screen.dart';
+
+// Access the global Supabase client
+final supabase = Supabase.instance.client;
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
-  // Get the current user from Firebase
-  User? get currentUser => FirebaseAuth.instance.currentUser;
+  // Get the current user from Supabase
+  User? get currentUser => supabase.auth.currentUser;
 
   Future<void> _logout(BuildContext context) async {
-    await FirebaseAuth.instance.signOut();
+    await supabase.auth.signOut(); // ✅ CHANGED
     // Navigate back to LoginScreen and remove all other pages
     if (context.mounted) {
       Navigator.of(context).pushAndRemoveUntil(
@@ -46,7 +48,7 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: 16),
             Center(
               child: Text(
-                // Show the user's email
+                // ✅ Show the user's email from Supabase
                 currentUser?.email ?? 'No Email',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
@@ -54,13 +56,14 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: 8),
             Center(
               child: Text(
-                'Student ID: 12345', // We'll get this from Firestore later
+                // We'll get this from the 'profiles' table later
+                'Student ID: 12345',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
 
-            const Spacer(), // Pushes the button to the bottom
-            // TODO: Add "Re-register Face Profile" button here
+            const Spacer(),
+
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
               onPressed: () {
