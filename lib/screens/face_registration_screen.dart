@@ -80,16 +80,21 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen> {
             ),
           );
 
-      // 4. Get the public URL (or just use the path)
-      final String imageUrl = supabase.storage
+      // 4. Get the public URL
+      final String publicUrl = supabase.storage
           .from('user_face_images')
           .getPublicUrl(filePath);
+
+      // ✅ --- FIX: CACHE-BUSTING ---
+      // Add a unique timestamp to the URL to force the app to refresh the image
+      final String imageUrl =
+          '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
 
       // 5. Update the user's record in the 'profiles' table
       await supabase
           .from('profiles')
           .update({
-            'face_image_path': imageUrl, // Save the public URL
+            'face_image_path': imageUrl, // Save the NEW cache-busted URL
           })
           .eq('id', user.id); // Where the profile ID matches the auth ID
 

@@ -27,7 +27,7 @@ android {
         applicationId = "com.sameersalim.faceattendancegeo"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 23
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -49,4 +49,16 @@ flutter {
 dependencies {
     // Add missing dependency for camera plugin
     implementation("androidx.concurrent:concurrent-futures:1.1.0")
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+}
+
+// Add this entire new block after the dependencies block:
+configurations.all {
+    resolutionStrategy {
+        exclude(group = "org.tensorflow", module = "tensorflow-lite")
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-gpu")
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-support")
+    }
 }
