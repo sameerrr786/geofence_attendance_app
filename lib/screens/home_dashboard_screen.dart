@@ -14,31 +14,28 @@ class HomeDashboardScreen extends StatefulWidget {
 }
 
 class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
-  // ✅ --- ADDED THIS LINE BACK ---
   final LocationService _locationService = LocationService();
 
   bool _isLoading = false;
   int? _loadingSubjectId;
 
-  // ✅ NEW: We will fetch the data once using a Future
   late final Future<List<Map<String, dynamic>>> _classroomsFuture;
 
   @override
   void initState() {
     super.initState();
-    // Initialize the future in initState
     _classroomsFuture = _fetchClassrooms();
   }
 
   Future<List<Map<String, dynamic>>> _fetchClassrooms() async {
     try {
-      // This query selects all columns from 'classrooms' and joins the
-      // 'full_name' from the 'profiles' table where instructor_id matches.
+      // This query selects all columns (*) from 'classrooms',
+      // which will include your new 'altitude' column.
+      // It also joins the 'full_name' from the 'profiles' table.
       final data = await supabase
           .from('classrooms')
           .select('*, profiles(full_name)');
 
-      // The data is already a List<Map<String, dynamic>>
       return data;
     } catch (e) {
       if (mounted) {
@@ -65,17 +62,25 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
       // 1. Get the geofence data from the map
       final double? latitude = (classroom['latitude'] as num?)?.toDouble();
       final double? longitude = (classroom['longitude'] as num?)?.toDouble();
-      // ✅ Use 'radius_m' and provide a default
+      // ✅ --- NEW: Get the altitude ---
+      final double? altitude = (classroom['altitude'] as num?)?.toDouble();
+
+      // Use 'radius_m' and provide a default
+      // This radius will be passed to location_service and override its default.
       final double radius = (classroom['radius_m'] as num?)?.toDouble() ?? 50.0;
 
-      if (latitude == null || longitude == null) {
-        throw Exception('Missing location coordinates for this subject.');
+      // ✅ --- NEW: Check for altitude ---
+      if (latitude == null || longitude == null || altitude == null) {
+        throw Exception(
+          'Missing location or altitude coordinates for this subject. Please ask your admin to update them.',
+        );
       }
 
-      // 2. Call our location service (no change needed here)
+      // 2. Call our location service, now with altitude
       final bool isInside = await _locationService.isWithinGeofence(
         classLat: latitude,
         classLng: longitude,
+        classAltitude: altitude, // ✅ --- ADDED ALTITUDE ---
         radius: radius,
       );
 
@@ -90,27 +95,22 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               backgroundColor: Colors.green,
             ),
           );
-          // ✅ --- FIXED THIS NAVIGATION ---
+
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (context) => AttendanceMarkingScreen(
                 subjectName: subjectName,
-                classroomId: classroom['id'], // ✅ ADDED this line
+                classroomId: classroom['id'],
               ),
             ),
           );
         }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('You are not inside the classroom!'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
-        }
       }
+      // Note: isWithinGeofence will now throw its own errors for
+      // "wrong floor" or "too far", which will be caught below.
     } catch (e) {
+      // This will now catch errors from isWithinGeofence,
+      // like "You are on the wrong floor."
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -137,9 +137,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         title: const Text('My Subjects'),
         backgroundColor: Theme.of(context).colorScheme.primaryContainer,
       ),
-      // ✅ CHANGED: Replaced StreamBuilder with FutureBuilder
+      // ✅ CHANGED: Removed the stray "LAG" text
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _classroomsFuture, // Use the future defined in initState
+        future: _classroomsFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -155,7 +155,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
             );
           }
 
-          // ✅ Data is now a List<Map<String, dynamic>>
           final classrooms = snapshot.data!;
 
           return ListView.builder(
@@ -165,7 +164,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
               final classroom = classrooms[index];
               final String subjectName = classroom['name'] ?? 'No Name';
 
-              // ✅ Accessing the joined instructor name
               final String instructorName;
               if (classroom['profiles'] != null) {
                 instructorName =
@@ -174,7 +172,6 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 instructorName = 'No Instructor';
               }
 
-              // Check if this specific card is the one loading
               final bool isThisCardLoading =
                   _isLoading && _loadingSubjectId == classroom['id'];
 
@@ -218,9 +215,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         ElevatedButton(
                           onPressed: _isLoading
                               ? null
-                              : () => _markAttendance(
-                                  classroom,
-                                ), // ✅ Pass the map
+                              : () => _markAttendance(classroom),
                           child: const Text('Mark'),
                         ),
                     ],
